@@ -1,0 +1,26 @@
+name: Release
+
+on:
+  schedule:
+    - cron: '17 3 * * 1'  # weekly on Monday
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: Mic92/hestia/action@main
+      - run: nix-build default.nix -A checks --no-out-link
+      - run: nix-build default.nix -A tarballs -o tarballs
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir out && cp -L tarballs/*.tar.gz out/
+          tag="$(date +%Y-%m-%d)-${GITHUB_SHA:0:7}"
+          gh release create "$tag" out/*.tar.gz --title "$(date +%Y-%m-%d)"
