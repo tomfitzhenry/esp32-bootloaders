@@ -51,16 +51,25 @@ let
   # CONFIG_APP_REPRODUCIBLE_BUILD eliminates date/time/path info from the
   # image (it also turns off CONFIG_BOOTLOADER_COMPILE_TIME_DATE), so the same
   # source builds byte-identically at any time.
+  #
+  # CONFIG_ESPTOOLPY_FLASHSIZE_4MB matches the boards these bootloaders are
+  # flashed to (e.g. picoprog's ESP32-C3 has 4 MB flash).  ESP-IDF defaults to
+  # 2 MB, which would be baked into the bootloader image header and mismatch
+  # the board's flash and app images.
   variants = {
     default = {
       sdkconfigDefaults = ''
         CONFIG_APP_REPRODUCIBLE_BUILD=y
+        CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+        CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
         # CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE is not set
       '';
     };
     with-rollback = {
       sdkconfigDefaults = ''
         CONFIG_APP_REPRODUCIBLE_BUILD=y
+        CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+        CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
         CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
       '';
     };
