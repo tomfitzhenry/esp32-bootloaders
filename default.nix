@@ -174,22 +174,31 @@ let
     builtins.mapAttrs (variant: variantCfg:
       mkCheck chip variant variantCfg chipCfg) variants) chips;
 
-  # Flash a built bootloader to its chip at offset 0x0.
-  mkFlash = chip: variant: bootloader: idf:
+  # Flash a built bootloader to its chip at offset 0x0 with probe-rs, then
+  # reset the chip so it boots the new bootloader.
+  #
+  # probe-rs talks to the chip over its built-in USB Serial/JTAG (the probe-rs
+  # udev rules cover the ESP device).
+  #
+  # `--restore-unwritten` matters: the ESP32-C3 flashloader uses 64 KiB
+  # sectors, so the bootloader (0x0) and a partition table (0x8000) share one
+  # sector, and a plain sector erase would wipe the partition table.
+  # `--verify` reads the flash back after writing.
+  mkFlash = chip: variant: bootloader:
     nativePkgs.writeShellApplication {
       name = "${chip}-bootloader-${variant}-flash";
-      runtimeInputs = [ idf ];
+      runtimeInputs = [ nativePkgs.probe-rs-tools ];
       text = ''
         set -euo pipefail
-        exec ${idf}/python-env/bin/python3 -m esptool \
-          --chip ${chip} -b 460800 --before default_reset --after hard_reset \
-          write_flash 0x0 ${bootloader}/bootloader.bin "$@"
+        probe-rs download --chip ${chip} --restore-unwritten --verify \
+          --binary-format bin --base-address 0x0 ${bootloader}/bootloader.bin "$@"
+        probe-rs reset --chip ${chip}
       '';
     };
 
   flash = builtins.mapAttrs (chip: chipCfg:
     builtins.mapAttrs (variant: _:
-      mkFlash chip variant bootloader.${chip}.${variant} chipCfg.idf) variants) chips;
+      mkFlash chip variant bootloader.${chip}.${variant}) variants) chips;
 
   # Flatten a nested attrset of derivations into a linkFarm.
   linkFarmOf = name: nested:

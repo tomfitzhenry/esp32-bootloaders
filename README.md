@@ -24,11 +24,12 @@ $ ls result/
 bootloader.bin  bootloader.elf  bootloader.map  sdkconfig  sdkconfig.h
 ```
 
-The bootloader image is flashed at offset `0x0`:
+The bootloader image is flashed at offset `0x0` with probe-rs (over the
+chip's built-in USB Serial/JTAG), then the chip is reset:
 
 ```console
 $ nix-build -A flash.esp32c3.with-rollback
-$ ./result --port /dev/ttyUSB0
+$ ./result/bin/esp32c3-bootloader-with-rollback-flash
 ```
 
 ## Check
@@ -55,7 +56,7 @@ a bootloader variant to try.
 | `check.<chip>.default` | Reproducibility + header check for the default bootloader |
 | `check.<chip>.with-rollback` | Reproducibility + header check for the rollback bootloader |
 | `tarball.<chip>.<variant>` | `.tar.gz` of a bootloader's artifacts |
-| `flash.<chip>.<variant>` | Flash that bootloader via esptool |
+| `flash.<chip>.<variant>` | Flash that bootloader via probe-rs |
 | `checks` / `tarballs` | Link farms over all of the above, for CI/release |
 
 Chips: `esp32c3`, `esp32c6` (RISC-V), `esp32s3` (Xtensa).
