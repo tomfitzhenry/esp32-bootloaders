@@ -52,27 +52,45 @@ let
   # image (it also turns off CONFIG_BOOTLOADER_COMPILE_TIME_DATE), so the same
   # source builds byte-identically at any time.
   #
-  # CONFIG_ESPTOOLPY_FLASHSIZE_4MB matches the boards these bootloaders are
-  # flashed to (e.g. picoprog's ESP32-C3 has 4 MB flash).  ESP-IDF defaults to
-  # 2 MB, which would be baked into the bootloader image header and mismatch
-  # the board's flash and app images.
+  # The flash size is baked into the bootloader image header, so it must match
+  # the board.  `4mb` matches e.g. picoprog's ESP32-C3; `16mb` matches boards
+  # like the ESP32-S3-WROOM-1-N16R8.  ESP-IDF defaults to 2 MB, which would
+  # mismatch both the board and its app images.
+  #
+  # PSRAM (the R8 on an N16R8) is initialised by the app, not this
+  # second-stage bootloader, so it needs no bootloader-side configuration.
+  mkVariant = flashSize: rollback: {
+    inherit flashSize;
+    sdkconfigDefaults = ''
+      CONFIG_APP_REPRODUCIBLE_BUILD=y
+      CONFIG_ESPTOOLPY_FLASHSIZE_${flashSize}=y
+      CONFIG_ESPTOOLPY_FLASHSIZE="${flashSize}"
+      ${
+        if rollback
+        then "CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y"
+        else "# CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE is not set"
+      }
+    '';
+  };
+
+  # esp_image_flash_size_t values, as encoded in the bootloader image header.
+  # https://github.com/espressif/esp-idf/blob/v5.5.2/components/bootloader_support/include/esp_app_format.h
+  flashSizeNibbles = {
+    "1MB" = 0;
+    "2MB" = 1;
+    "4MB" = 2;
+    "8MB" = 3;
+    "16MB" = 4;
+    "32MB" = 5;
+    "64MB" = 6;
+    "128MB" = 7;
+  };
+
   variants = {
-    default = {
-      sdkconfigDefaults = ''
-        CONFIG_APP_REPRODUCIBLE_BUILD=y
-        CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
-        CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
-        # CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE is not set
-      '';
-    };
-    with-rollback = {
-      sdkconfigDefaults = ''
-        CONFIG_APP_REPRODUCIBLE_BUILD=y
-        CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
-        CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
-        CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
-      '';
-    };
+    default = mkVariant "4MB" false;
+    with-rollback = mkVariant "4MB" true;
+    "default-16mb" = mkVariant "16MB" false;
+    "with-rollback-16mb" = mkVariant "16MB" true;
   };
 
   # The idf.py commands that build the bootloader into ./build.  Shared by the
@@ -165,6 +183,13 @@ let
 
         segment_count=$(od -An -tu1 -j1 -N1 build/bootloader/bootloader.bin | tr -d ' ')
         [ "$segment_count" -gt 0 ] || { echo "FAIL: no segments in image"; exit 1; }
+
+        # Byte 3 packs spi_speed in the low nibble and spi_size in the high
+        # nibble; this must match the flash on the board.
+        size_byte=$(od -An -tu1 -j3 -N1 build/bootloader/bootloader.bin | tr -d ' ')
+        size_nibble=$((size_byte >> 4))
+        [ "$size_nibble" -eq ${toString flashSizeNibbles.${variantCfg.flashSize}} ] \
+          || { echo "FAIL: image says flash size nibble $size_nibble, expected ${variantCfg.flashSize}"; exit 1; }
 
         touch $out
       '';
