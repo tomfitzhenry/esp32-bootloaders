@@ -15,6 +15,8 @@ let
     # See https://github.com/mirrexagon/nixpkgs-esp-dev/issues/109
     config.permittedInsecurePackages = [
       "python3.13-ecdsa-0.19.1"
+      # MCUboot's ESP-IDF 5.1.6 uses Python 3.11, whose ecdsa is also insecure.
+      "python3.11-ecdsa-0.19.1"
     ];
   };
 
@@ -232,10 +234,22 @@ let
           then [ { name = v.name; path = v; } ]
           else flatten v) attrs));
     in nativePkgs.linkFarm name (flatten nested);
+
+  mcubootModule = import ./mcuboot.nix {
+    pkgs = nativePkgs;
+    inherit espPkgs flashSizeNibbles;
+  };
 in
 {
   inherit bootloader check flash tarball;
+  inherit (mcubootModule) mcuboot mcubootCheck mcubootFlash mcubootTarball;
 
-  tarballs = linkFarmOf "tarballs" tarball;
-  checks = linkFarmOf "checks" check;
+  tarballs = linkFarmOf "tarballs" {
+    bootloader = tarball;
+    mcuboot = mcubootModule.mcubootTarball;
+  };
+  checks = linkFarmOf "checks" {
+    bootloader = check;
+    mcuboot = mcubootModule.mcubootCheck;
+  };
 }
