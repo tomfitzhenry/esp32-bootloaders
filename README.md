@@ -32,13 +32,14 @@ $ nix-build -A flash.esp32c3.with-rollback
 $ ./result/bin/esp32c3-bootloader-with-rollback-flash
 ```
 
-For an ESP32-S3-WROOM-1-N16R8 (16 MB flash, 8 MB PSRAM), use a `-16mb`
-variant. The bootloader advertises the flash size in its image header, so the
-4 MB variants are not suitable for that board:
+Each chip has one fixed flash size matching its board: `esp32c3` and
+`esp32c6` are 4 MB, and `esp32s3` is 16 MB (the ESP32-S3-WROOM-1-N16R8). The
+flash size is baked into the bootloader image header, so it is not a variant
+dimension. For the N16R8:
 
 ```console
-$ nix-build -A bootloader.esp32s3.with-rollback-16mb
-$ nix-build -A flash.esp32s3.with-rollback-16mb
+$ nix-build -A bootloader.esp32s3.with-rollback
+$ nix-build -A flash.esp32s3.with-rollback
 ```
 
 The PSRAM is initialised by the app, not the second-stage bootloader, so no
@@ -50,7 +51,7 @@ The `check` attribute rebuilds each bootloader from scratch and requires it to
 be byte-identical to the stored one, proving the builds are reproducible
 (`CONFIG_APP_REPRODUCIBLE_BUILD` removes date/time/path info from the image).
 It also sanity-checks the image header: ESP magic byte `0xE9`, a non-empty
-segment count, and a flash-size field matching the variant.
+segment count, and a flash-size field matching the chip.
 
 ```console
 $ nix-build -A check.esp32c3.with-rollback --no-out-link
@@ -63,13 +64,12 @@ a bootloader variant to try.
 
 | Attribute | Notes |
 |-----------|-------|
-| `bootloader.<chip>.default` | Stock esp-idf bootloader (rollback off, 4 MB flash) |
-| `bootloader.<chip>.with-rollback` | Bootloader with `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y` (4 MB flash) |
-| `bootloader.<chip>.default-16mb` | Stock esp-idf bootloader (rollback off, 16 MB flash) |
-| `bootloader.<chip>.with-rollback-16mb` | Rollback bootloader for 16 MB flash (e.g. ESP32-S3 N16R8) |
+| `bootloader.<chip>.default` | Stock esp-idf bootloader (rollback off) |
+| `bootloader.<chip>.with-rollback` | Bootloader with `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y` |
 | `check.<chip>.<variant>` | Reproducibility + header check for a variant |
 | `tarball.<chip>.<variant>` | `.tar.gz` of a bootloader's artifacts |
 | `flash.<chip>.<variant>` | Flash that bootloader via probe-rs |
 | `checks` / `tarballs` | Link farms over all of the above, for CI/release |
 
-Chips: `esp32c3`, `esp32c6` (RISC-V), `esp32s3` (Xtensa).
+Chips: `esp32c3`, `esp32c6` (RISC-V), `esp32s3` (Xtensa). Flash sizes are fixed
+per chip: 4 MB for `esp32c3`/`esp32c6`, 16 MB for `esp32s3`.

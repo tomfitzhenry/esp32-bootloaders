@@ -32,16 +32,27 @@ let
   project = ./bootloader-project;
 
   # Chips we build bootloaders for.  Each carries the esp-idf package with
-  # the right toolchain.
+  # the right toolchain and its board's flash size.
+  #
+  # The flash size is baked into the bootloader image header, so it must match
+  # the board: picoprog's ESP32-C3 and the ESP32-C6 have 4 MB, and the
+  # ESP32-S3-WROOM-1-N16R8 has 16 MB.  ESP-IDF defaults to 2 MB, which would
+  # mismatch every supported board and its app images.
+  #
+  # PSRAM (the R8 on an N16R8) is initialised by the app, not this
+  # second-stage bootloader, so it needs no bootloader-side configuration.
   chips = {
     esp32c3 = {
       idf = espPkgs.esp-idf-riscv;
+      flashSize = "4MB";
     };
     esp32c6 = {
       idf = espPkgs.esp-idf-riscv;
+      flashSize = "4MB";
     };
     esp32s3 = {
       idf = espPkgs.esp-idf-xtensa;
+      flashSize = "16MB";
     };
   };
 
@@ -51,26 +62,8 @@ let
   # CONFIG_APP_REPRODUCIBLE_BUILD eliminates date/time/path info from the
   # image (it also turns off CONFIG_BOOTLOADER_COMPILE_TIME_DATE), so the same
   # source builds byte-identically at any time.
-  #
-  # The flash size is baked into the bootloader image header, so it must match
-  # the board.  `4mb` matches e.g. picoprog's ESP32-C3; `16mb` matches boards
-  # like the ESP32-S3-WROOM-1-N16R8.  ESP-IDF defaults to 2 MB, which would
-  # mismatch both the board and its app images.
-  #
-  # PSRAM (the R8 on an N16R8) is initialised by the app, not this
-  # second-stage bootloader, so it needs no bootloader-side configuration.
-  mkVariant = flashSize: rollback: {
-    inherit flashSize;
-    sdkconfigDefaults = ''
-      CONFIG_APP_REPRODUCIBLE_BUILD=y
-      CONFIG_ESPTOOLPY_FLASHSIZE_${flashSize}=y
-      CONFIG_ESPTOOLPY_FLASHSIZE="${flashSize}"
-      ${
-        if rollback
-        then "CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y"
-        else "# CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE is not set"
-      }
-    '';
+  mkVariant = rollback: {
+    inherit rollback;
   };
 
   # esp_image_flash_size_t values, as encoded in the bootloader image header.
@@ -87,17 +80,22 @@ let
   };
 
   variants = {
-    default = mkVariant "4MB" false;
-    with-rollback = mkVariant "4MB" true;
-    "default-16mb" = mkVariant "16MB" false;
-    "with-rollback-16mb" = mkVariant "16MB" true;
+    default = mkVariant false;
+    with-rollback = mkVariant true;
   };
 
   # The idf.py commands that build the bootloader into ./build.  Shared by the
   # bootloader derivation and the reproducibility check.
-  idfBuild = chip: variantCfg: ''
+  idfBuild = chip: variantCfg: chipCfg: ''
     cat > sdkconfig.defaults <<EOF
-    ${variantCfg.sdkconfigDefaults}
+    CONFIG_APP_REPRODUCIBLE_BUILD=y
+    CONFIG_ESPTOOLPY_FLASHSIZE_${chipCfg.flashSize}=y
+    CONFIG_ESPTOOLPY_FLASHSIZE="${chipCfg.flashSize}"
+    ${
+      if variantCfg.rollback
+      then "CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y"
+      else "# CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE is not set"
+    }
     EOF
 
     # The build wants a writable cache dir under $HOME.
@@ -129,7 +127,7 @@ let
         cp -r $src/* .
         chmod -R +w .
 
-        ${idfBuild chip variantCfg}
+        ${idfBuild chip variantCfg chipCfg}
 
         mkdir -p $out
         cp build/bootloader/bootloader.bin $out/
@@ -169,7 +167,7 @@ let
         cp -r $src/* .
         chmod -R +w .
 
-        ${idfBuild chip variantCfg}
+        ${idfBuild chip variantCfg chipCfg}
 
         cmp build/bootloader/bootloader.bin ${bootloader.${chip}.${variant}}/bootloader.bin \
           || { echo "FAIL: ${chip}-${variant} bootloader is not reproducible"; exit 1; }
@@ -188,8 +186,8 @@ let
         # nibble; this must match the flash on the board.
         size_byte=$(od -An -tu1 -j3 -N1 build/bootloader/bootloader.bin | tr -d ' ')
         size_nibble=$((size_byte >> 4))
-        [ "$size_nibble" -eq ${toString flashSizeNibbles.${variantCfg.flashSize}} ] \
-          || { echo "FAIL: image says flash size nibble $size_nibble, expected ${variantCfg.flashSize}"; exit 1; }
+        [ "$size_nibble" -eq ${toString flashSizeNibbles.${chipCfg.flashSize}} ] \
+          || { echo "FAIL: image says flash size nibble $size_nibble, expected ${chipCfg.flashSize}"; exit 1; }
 
         touch $out
       '';
